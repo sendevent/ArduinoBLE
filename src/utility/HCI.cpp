@@ -24,7 +24,7 @@
 #include "btct.h"
 #include "HCI.h"
 #include "bitDescriptions.h"
-// #define _BLE_TRACE_
+#define _BLE_TRACE_
 
 
 #define HCI_COMMAND_PKT   0x01
@@ -454,6 +454,7 @@ int HCIClass::leConnUpdate(uint16_t handle, uint16_t minInterval, uint16_t maxIn
   return sendCommand(OGF_LE_CTL << 10 | OCF_LE_CONN_UPDATE, sizeof(leConnUpdateData), &leConnUpdateData);
 }
 int HCIClass::saveNewAddress(uint8_t addressType, uint8_t* address, uint8_t* peerIrk, uint8_t* localIrk){
+    Serial.println("HCIClass::saveNewAddress");
   if(_storeIRK!=0){
     _storeIRK(address, peerIrk);
   }
@@ -796,37 +797,27 @@ void HCIClass::handleNumCompPkts(uint16_t /*handle*/, uint16_t numPkts)
   }
 }
 
-void HCIClass::handleEventPkt(uint8_t /*plen*/, uint8_t pdata[])
+void HCIClass::handle_DisconnectComplete(const uint8_t* const pdata)
 {
-  struct __attribute__ ((packed)) HCIEventHdr {
-    uint8_t evt;
-    uint8_t plen;
-  } *eventHdr = (HCIEventHdr*)pdata;
-#ifdef _BLE_TRACE_
-  Serial.print("HCI event: ");
-  Serial.println(eventHdr->evt, HEX);
-#endif
-
-  if (eventHdr->evt == EVT_DISCONN_COMPLETE)
-  {
     struct __attribute__ ((packed)) DisconnComplete {
       uint8_t status;
       uint16_t handle;
       uint8_t reason;
-    } *disconnComplete = (DisconnComplete*)&pdata[sizeof(HCIEventHdr)];
+    } *disconnComplete = (DisconnComplete*)pdata;
 
     ATT.removeConnection(disconnComplete->handle, disconnComplete->reason);
     L2CAPSignaling.removeConnection(disconnComplete->handle, disconnComplete->reason);
 
     HCI.leSetAdvertiseEnable(0x01);
-  }
-  else if (eventHdr->evt == EVT_ENCRYPTION_CHANGE)
-  {
+}
+
+void HCIClass::handle_EncriptionChange(const uint8_t* const pdata)
+{
     struct __attribute__ ((packed)) EncryptionChange {
       uint8_t status;
       uint16_t connectionHandle;
       uint8_t enabled;
-    } *encryptionChange = (EncryptionChange*)&pdata[sizeof(HCIEventHdr)];
+    } *encryptionChange = (EncryptionChange*)pdata;
 #ifdef _BLE_TRACE_
     Serial.println("[Info] Encryption changed");
     Serial.print("status : ");
@@ -850,7 +841,7 @@ void HCIClass::handleEventPkt(uint8_t /*plen*/, uint8_t pdata[])
         }
         // From page 1681 bluetooth standard - order matters
         if(ATT.localKeyDistribution.IdKey()){
-          /// We shall distribute IRK and address using identity information 
+          /// We shall distribute IRK and address using identity information
           {
             uint8_t response[17];
             response[0] = CONNECTION_IDENTITY_INFORMATION; // Identity information.
@@ -867,6 +858,22 @@ void HCIClass::handleEventPkt(uint8_t /*plen*/, uint8_t pdata[])
             for(int i=0; i<6; i++) response[7-i] = HCI.localAddr[i];
             HCI.sendAclPkt(encryptionChange->connectionHandle, SECURITY_CID, sizeof(response), response);
           }
+#ifdef _BLE_TRACE_
+    Serial.println("HCI::CONNECTION_IDENTITY_ADDRESS|CONNECTION_IDENTITY_INFORMATION");
+#endif
+//            uint8_t peerAddr[6];
+//            if(ATT.getPeerAddr(encryptionChange->connectionHandle, peerAddr))
+//            {
+//        #ifdef _BLE_TRACE_
+//            Serial.println("HCI SAVING PEER IRKs");
+//        #endif
+//                storeIRK(peerAddr, ATT.peerIRK);
+//                storeLTK(peerAddr, LTK);
+//            }
+//        #ifdef _BLE_TRACE_
+//            Serial.println("CAN'T GET PEER ADDR INFO");
+//        #endif
+
         }
         if(ATT.localKeyDistribution.SignKey()){
           /// We shall distribut CSRK
@@ -904,14 +911,15 @@ void HCIClass::handleEventPkt(uint8_t /*plen*/, uint8_t pdata[])
     }else{
       ATT.setPeerEncryption(encryptionChange->connectionHandle, PEER_ENCRYPTION::NO_ENCRYPTION);
     }
-  }
-  else if (eventHdr->evt == EVT_CMD_COMPLETE)
-  {
+}
+
+void HCIClass::handle_CmdComplete(uint8_t* pdata)
+{
     struct __attribute__ ((packed)) CmdComplete {
       uint8_t ncmd;
       uint16_t opcode;
       uint8_t status;
-    } *cmdCompleteHeader = (CmdComplete*)&pdata[sizeof(HCIEventHdr)];
+    } *cmdCompleteHeader = (CmdComplete*)pdata;
 #ifdef _BLE_TRACE_
     Serial.print("E ncmd:   0x");
     Serial.println(cmdCompleteHeader->ncmd,HEX);
@@ -923,16 +931,16 @@ void HCIClass::handleEventPkt(uint8_t /*plen*/, uint8_t pdata[])
     _cmdCompleteOpcode = cmdCompleteHeader->opcode;
     _cmdCompleteStatus = cmdCompleteHeader->status;
     _cmdResponseLen = pdata[1] - sizeof(CmdComplete);
-    _cmdResponse = &pdata[sizeof(HCIEventHdr) + sizeof(CmdComplete)];
+    _cmdResponse = pdata + sizeof(CmdComplete);
+}
 
-  }
-  else if (eventHdr->evt == EVT_CMD_STATUS)
-  {
+void HCIClass::handle_CmdStatus(const uint8_t* const pdata)
+{
     struct __attribute__ ((packed)) CmdStatus {
       uint8_t status;
       uint8_t ncmd;
       uint16_t opcode;
-    } *cmdStatusHeader = (CmdStatus*)&pdata[sizeof(HCIEventHdr)];
+    } *cmdStatusHeader = (CmdStatus*)pdata;
 
 #ifdef _BLE_TRACE_
     Serial.print("F n cmd:  0x");
@@ -945,11 +953,12 @@ void HCIClass::handleEventPkt(uint8_t /*plen*/, uint8_t pdata[])
     _cmdCompleteOpcode = cmdStatusHeader->opcode;
     _cmdCompleteStatus = cmdStatusHeader->status;
     _cmdResponseLen = 0;
-  }
-  else if (eventHdr->evt == EVT_NUM_COMP_PKTS)
-  {
-    uint8_t numHandles = pdata[sizeof(HCIEventHdr)];
-    uint16_t* data = (uint16_t*)&pdata[sizeof(HCIEventHdr) + sizeof(numHandles)];
+}
+
+void HCIClass::handle_NumCompletePackets(const uint8_t* const pdata)
+{
+    uint8_t numHandles = pdata[0];
+    uint16_t* data = (uint16_t*)pdata[sizeof(numHandles)];
 
     for (uint8_t i = 0; i < numHandles; i++) {
       handleNumCompPkts(data[0], data[1]);
@@ -963,19 +972,20 @@ void HCIClass::handleEventPkt(uint8_t /*plen*/, uint8_t pdata[])
 #endif
       data += 2;
     }
-  }
-  else if(eventHdr->evt == EVT_RETURN_LINK_KEYS)
-  {
-    uint8_t num_keys = (uint8_t)pdata[sizeof(HCIEventHdr)];
+}
+
+void HCIClass::handle_ReturnLinkKeys(const uint8_t* const pdata)
+{
+    uint8_t num_keys = *pdata;
     // Serial.print("N keys: ");
     // Serial.println(num_keys);
     uint8_t BD_ADDRs[num_keys][6];
     uint8_t LKs[num_keys][16];
     auto nAddresss = [pdata](uint8_t nAddr)->uint8_t*{
-      return (uint8_t*) &pdata[sizeof(HCIEventHdr)] + 1 + nAddr*6 + nAddr*16;
+      return (uint8_t*) pdata[0] + 1 + nAddr*6 + nAddr*16;
     };
     auto nLK = [pdata](uint8_t nLK)->uint8_t*{
-      return (uint8_t*) &pdata[sizeof(HCIEventHdr)] + 1 + (nLK+1)*6 + nLK*16;
+      return (uint8_t*) pdata[0] + 1 + (nLK+1)*6 + nLK*16;
     };
     // Serial.println("Stored LKs are: ");
     // for(int i=0; i<num_keys; i++){
@@ -984,23 +994,27 @@ void HCIClass::handleEventPkt(uint8_t /*plen*/, uint8_t pdata[])
     //   Serial.print("LK      : ");
     //   btct.printBytes(nLK(i),16);
     // }
-  }
-  else if(eventHdr->evt == 0x10)
-  {
+}
+
+void HCIClass::handle_UnknownEvent(const uint8_t* const pdata)
+{
     struct __attribute__ ((packed)) CmdHardwareError {
-      uint8_t hardwareCode;
-    } *cmdHardwareError = (CmdHardwareError*)&pdata[sizeof(HCIEventHdr)];
+    uint8_t hardwareCode;
+    } *cmdHardwareError = (CmdHardwareError*)pdata;
+
 #ifdef _BLE_TRACE_
     Serial.print("Bluetooth hardware error.");
     Serial.print(" Code: 0x");
     Serial.println(cmdHardwareError->hardwareCode, HEX);
 #endif
-  }
-  else if (eventHdr->evt == EVT_LE_META_EVENT)
-  {
+}
+
+void HCIClass::handle_MetaEvent(const uint8_t* const pdata)
+{
+
     struct __attribute__ ((packed)) LeMetaEventHeader {
       uint8_t subevent;
-    } *leMetaHeader = (LeMetaEventHeader*)&pdata[sizeof(HCIEventHdr)];
+    } *leMetaHeader = (LeMetaEventHeader*)pdata;
 #ifdef _BLE_TRACE_
     Serial.print("\tSubEvent: 0x");
     Serial.println(leMetaHeader->subevent,HEX);
@@ -1019,8 +1033,8 @@ void HCIClass::handleEventPkt(uint8_t /*plen*/, uint8_t pdata[])
           uint16_t latency;
           uint16_t supervisionTimeout;
           uint8_t masterClockAccuracy;
-        } *leConnectionComplete = (EvtLeConnectionComplete*)&pdata[sizeof(HCIEventHdr) + sizeof(LeMetaEventHeader)];
-      
+        } *leConnectionComplete = (EvtLeConnectionComplete*)(pdata + sizeof(LeMetaEventHeader));
+
         if (leConnectionComplete->status == 0x00) {
           ATT.addConnection(leConnectionComplete->handle,
                             leConnectionComplete->role,
@@ -1068,8 +1082,8 @@ void HCIClass::handleEventPkt(uint8_t /*plen*/, uint8_t pdata[])
           uint16_t latency;
           uint16_t supervisionTimeout;
           uint8_t masterClockAccuracy;
-        } *leConnectionComplete = (EvtLeConnectionComplete*)&pdata[sizeof(HCIEventHdr) + sizeof(LeMetaEventHeader)];
-      
+        } *leConnectionComplete = (EvtLeConnectionComplete*)(pdata + sizeof(LeMetaEventHeader));
+
         if (leConnectionComplete->status == 0x00) {
           ATT.addConnection(leConnectionComplete->handle,
                             leConnectionComplete->role,
@@ -1107,7 +1121,7 @@ void HCIClass::handleEventPkt(uint8_t /*plen*/, uint8_t pdata[])
           uint8_t peerBdaddr[6];
           uint8_t eirLength;
           uint8_t eirData[31];
-        } *leAdvertisingReport = (EvtLeAdvertisingReport*)&pdata[sizeof(HCIEventHdr) + sizeof(LeMetaEventHeader)];
+        } *leAdvertisingReport = (EvtLeAdvertisingReport*)(pdata + sizeof(LeMetaEventHeader));
 
         if (leAdvertisingReport->status == 0x01) {
           // last byte is RSSI
@@ -1129,7 +1143,7 @@ void HCIClass::handleEventPkt(uint8_t /*plen*/, uint8_t pdata[])
           uint16_t connectionHandle;
           uint8_t randomNumber[8];
           uint8_t encryptedDiversifier[2];
-        } *ltkRequest = (LTKRequest*)&pdata[sizeof(HCIEventHdr)];
+        } *ltkRequest = (LTKRequest*)pdata;
 #ifdef _BLE_TRACE_
         Serial.println("LTK request received");
         Serial.print("Connection Handle: ");
@@ -1144,15 +1158,33 @@ void HCIClass::handleEventPkt(uint8_t /*plen*/, uint8_t pdata[])
         uint8_t resolvableAddr[6];
         uint8_t foundLTK;
         ATT.getPeerAddrWithType(ltkRequest->connectionHandle, peerAddr);
-        
+
         if((ATT.getPeerEncryption(ltkRequest->connectionHandle) & PEER_ENCRYPTION::PAIRING_REQUEST)>0){
           // Pairing request - LTK is one in buffer already
           foundLTK = 1;
+#ifdef _BLE_TRACE_
+            Serial.println("Found LTK-1");
+            btct.printBytes(peerAddr,7);
+            btct.printBytes(resolvableAddr,6);
+            btct.printBytes(HCI.LTK,16);
+#endif
         }else{
           if(ATT.getPeerResolvedAddress(ltkRequest->connectionHandle, resolvableAddr)){
             foundLTK = getLTK(resolvableAddr, HCI.LTK);
+#ifdef _BLE_TRACE_
+            Serial.println("Found LTK-2");
+            btct.printBytes(peerAddr,7);
+            btct.printBytes(resolvableAddr,6);
+            btct.printBytes(HCI.LTK,16);
+#endif
           }else{
             foundLTK = getLTK(&peerAddr[1], HCI.LTK);
+#ifdef _BLE_TRACE_
+            Serial.println("Found LTK-3");
+            btct.printBytes(peerAddr,7);
+            btct.printBytes(resolvableAddr,6);
+            btct.printBytes(HCI.LTK,16);
+#endif
           }
         }
         // } //2d
@@ -1210,7 +1242,7 @@ void HCIClass::handleEventPkt(uint8_t /*plen*/, uint8_t pdata[])
           uint16_t intervalMax;
           uint16_t latency;
           uint16_t timeOut;
-        } *remoteConnParamReq = (RemoteConnParamReq*)&pdata[sizeof(HCIEventHdr)];
+        } *remoteConnParamReq = (RemoteConnParamReq*)pdata;
 #ifdef _BLE_TRACE_
         Serial.println("--- Remtoe conn param req");
         Serial.print("Handle      : ");
@@ -1224,7 +1256,7 @@ void HCIClass::handleEventPkt(uint8_t /*plen*/, uint8_t pdata[])
         Serial.print("Timeout     : ");
         btct.printBytes((uint8_t*)&remoteConnParamReq->timeOut,2);
 #endif
-        
+
         struct __attribute__ ((packed)) RemoteConnParamReqReply {
           uint16_t connectionHandle;
           uint16_t intervalMin;
@@ -1246,7 +1278,7 @@ void HCIClass::handleEventPkt(uint8_t /*plen*/, uint8_t pdata[])
           uint8_t subEventCode;
           uint8_t status;
           uint8_t localPublicKey[64];
-        } *evtReadLocalP256Complete = (EvtReadLocalP256Complete*)&pdata[sizeof(HCIEventHdr)];
+        } *evtReadLocalP256Complete = (EvtReadLocalP256Complete*)pdata;
         if(evtReadLocalP256Complete->status == 0x0){
 #ifdef _BLE_TRACE_
           Serial.println("Key read success");
@@ -1270,13 +1302,13 @@ void HCIClass::handleEventPkt(uint8_t /*plen*/, uint8_t pdata[])
           HCI.sendAclPkt(connectionHandle,SECURITY_CID,sizeof(PairingPublicKey),&pairingPublicKey);
           uint8_t encryption = ATT.getPeerEncryption(connectionHandle) | PEER_ENCRYPTION::SENT_PUBKEY;
           ATT.setPeerEncryption(connectionHandle, encryption);
-          
+
 
           uint8_t Z = 0;
-          
+
           HCI.leRand(Nb);
           HCI.leRand(&Nb[8]);
-          
+
 #ifdef _BLE_TRACE_
           Serial.print("nb: ");
           btct.printBytes(Nb, 16);
@@ -1288,16 +1320,16 @@ void HCIClass::handleEventPkt(uint8_t /*plen*/, uint8_t pdata[])
             uint8_t Z;
           } f4Params = {0,0,Z};
           for(int i=0; i<32; i++){
-            f4Params.U[31-i] = pairingPublicKey.publicKey[i]; 
+            f4Params.U[31-i] = pairingPublicKey.publicKey[i];
             f4Params.V[31-i] = HCI.remotePublicKeyBuffer[i];
           }
-          
+
           struct __attribute__ ((packed)) PairingConfirm
           {
             uint8_t code;
             uint8_t cb[16];
           } pairingConfirm = {CONNECTION_PAIRING_CONFIRM,0};
-          
+
           btct.AES_CMAC(Nb,(unsigned char *)&f4Params,sizeof(f4Params),pairingConfirm.cb);
 
 #ifdef _BLE_TRACE_
@@ -1314,12 +1346,12 @@ void HCIClass::handleEventPkt(uint8_t /*plen*/, uint8_t pdata[])
 
           // Send Pairing confirm response
           HCI.sendAclPkt(connectionHandle, SECURITY_CID, sizeof(pairingConfirm), &pairingConfirm);
-          // Start calculating DH Key 
+          // Start calculating DH Key
           uint8_t remotePublicKeyReversed[sizeof(HCI.remotePublicKeyBuffer)];
           for(int i=0; i<sizeof(HCI.remotePublicKeyBuffer); i++){
             remotePublicKeyReversed[sizeof(HCI.remotePublicKeyBuffer)-i] = HCI.remotePublicKeyBuffer[i];
           }
-          
+
           HCI.sendCommand( (OGF_LE_CTL << 10) | LE_COMMAND::GENERATE_DH_KEY_V1, sizeof(HCI.remotePublicKeyBuffer), HCI.remotePublicKeyBuffer);
         }else{
 #ifdef _BLE_TRACE_
@@ -1339,7 +1371,7 @@ void HCIClass::handleEventPkt(uint8_t /*plen*/, uint8_t pdata[])
           uint8_t subEventCode;
           uint8_t status;
           uint8_t DHKey[32];
-        } *evtLeDHKeyComplete = (EvtLeDHKeyComplete*)&pdata[sizeof(HCIEventHdr)];
+        } *evtLeDHKeyComplete = (EvtLeDHKeyComplete*)pdata;
         if(evtLeDHKeyComplete->status == 0x0){
 #ifdef _BLE_TRACE_
           Serial.println("DH key generated");
@@ -1351,8 +1383,8 @@ void HCIClass::handleEventPkt(uint8_t /*plen*/, uint8_t pdata[])
 #endif
             break;
           }
-          
-          
+
+
           for(int i=0; i<32; i++) DHKey[31-i] = evtLeDHKeyComplete->DHKey[i];
 
 #ifdef _BLE_TRACE_
@@ -1367,7 +1399,7 @@ void HCIClass::handleEventPkt(uint8_t /*plen*/, uint8_t pdata[])
             Serial.println("Received DHKey check already so calculate f5, f6 now.");
 #endif
             L2CAPSignaling.smCalculateLTKandConfirm(connectionHandle, HCI.remoteDHKeyCheckBuffer);
-	  
+
           }else{
 #ifdef _BLE_TRACE_
             Serial.println("Waiting on other DHKey check before calculating.");
@@ -1388,10 +1420,51 @@ void HCIClass::handleEventPkt(uint8_t /*plen*/, uint8_t pdata[])
 #endif
       }
     }
-  }else{
+}
+
+void HCIClass::handleEventPkt(uint8_t /*plen*/, uint8_t pdata[])
+{
+  struct __attribute__ ((packed)) HCIEventHdr {
+    uint8_t evt;
+    uint8_t plen;
+  } *eventHdr = (HCIEventHdr*)pdata;
 #ifdef _BLE_TRACE_
-    Serial.println("[Info] Unhandled event");
+  Serial.print("HCI event: ");
+  Serial.println(eventHdr->evt, HEX);
 #endif
+
+  const uint8_t * const payload_const = &pdata[sizeof(HCIEventHdr)];
+  switch(eventHdr->evt)
+  {
+  case EVT_DISCONN_COMPLETE:
+      handle_DisconnectComplete(payload_const);
+      break;
+  case EVT_ENCRYPTION_CHANGE:
+      handle_EncriptionChange(payload_const);
+      break;
+  case EVT_CMD_COMPLETE:
+      handle_CmdComplete(&pdata[sizeof(HCIEventHdr)]);
+      break;
+  case EVT_CMD_STATUS:
+      handle_CmdStatus(payload_const);
+      break;
+  case EVT_NUM_COMP_PKTS:
+      handle_NumCompletePackets(payload_const);
+      break;
+  case EVT_RETURN_LINK_KEYS:
+      handle_ReturnLinkKeys(payload_const);
+      break;
+  case EVT_UNKNOWN:
+      handle_UnknownEvent(payload_const);
+      break;
+  case EVT_LE_META_EVENT:
+      handle_MetaEvent(payload_const);
+      break;
+  default:
+#ifdef _BLE_TRACE_
+      Serial.println("[Info] Unhandled event");
+#endif
+      break;
   }
 }
 int HCIClass::leEncrypt(uint8_t* key, uint8_t* plaintext, uint8_t* status, uint8_t* ciphertext){

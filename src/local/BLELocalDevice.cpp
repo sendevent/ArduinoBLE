@@ -22,6 +22,7 @@
 #include "utility/GAP.h"
 #include "utility/GATT.h"
 #include "utility/L2CAPSignaling.h"
+#include "utility/btct.h"
 
 #include "BLELocalDevice.h"
 

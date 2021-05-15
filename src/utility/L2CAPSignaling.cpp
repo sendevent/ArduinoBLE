@@ -26,7 +26,7 @@
 #define CONNECTION_PARAMETER_UPDATE_REQUEST  0x12
 #define CONNECTION_PARAMETER_UPDATE_RESPONSE 0x13
 
-//#define _BLE_TRACE_
+#define _BLE_TRACE_
 
 L2CAPSignalingClass::L2CAPSignalingClass() :
   _minInterval(0),
@@ -132,7 +132,10 @@ void L2CAPSignalingClass::handleSecurityData(uint16_t connectionHandle, uint8_t 
   btct.printBytes(data,dlen);
 #endif
   if (code == CONNECTION_PAIRING_REQUEST) {
-	  
+#ifdef _BLE_TRACE_
+    Serial.println("L2CAPSignalingClass::CONNECTION_PAIRING_REQUEST");
+#endif
+
     if (isPairingEnabled()){
       if (_pairing_enabled >= 2) _pairing_enabled = 0;  // 2 = pair once only
       
@@ -193,6 +196,10 @@ void L2CAPSignalingClass::handleSecurityData(uint16_t connectionHandle, uint8_t 
   }
   else if (code == CONNECTION_PAIRING_RANDOM)
   {
+#ifdef _BLE_TRACE_
+    Serial.println("L2CAPSignalingClass::CONNECTION_PAIRING_RANDOM");
+#endif
+
     struct __attribute__ ((packed)) PairingRandom {
       uint8_t Na[16];
     } *pairingRandom = (PairingRandom*)l2capSignalingHdr->data;
@@ -229,10 +236,10 @@ void L2CAPSignalingClass::handleSecurityData(uint16_t connectionHandle, uint8_t 
     btct.printBytes(U,32);
     Serial.print("V      : ");
     btct.printBytes(V,32);
-    Serial.print("X      : ");
-    btct.printBytes(X,16);
-    Serial.print("Y      : ");
-    btct.printBytes(Y,16);
+//    Serial.print("X      : ");
+//    btct.printBytes(X,16);
+//    Serial.print("Y      : ");
+//    btct.printBytes(Y,16);
     Serial.print("g2res  : ");
     btct.printBytes(g2Result,4);
     Serial.print("Result : ");
@@ -261,9 +268,16 @@ void L2CAPSignalingClass::handleSecurityData(uint16_t connectionHandle, uint8_t 
   }
   else if (code == CONNECTION_PAIRING_RESPONSE)
   {
+#ifdef _BLE_TRACE_
+    Serial.println("L2CAPSignalingClass::CONNECTION_PAIRING_RESPONSE");
+#endif
+
   }
   else if(code == CONNECTION_PAIRING_FAILED)
   {
+#ifdef _BLE_TRACE_
+    Serial.println("L2CAPSignalingClass::CONNECTION_PAIRING_FAILED");
+#endif
     struct __attribute__ ((packed)) PairingFailed
     {
       uint8_t code;
@@ -276,6 +290,9 @@ void L2CAPSignalingClass::handleSecurityData(uint16_t connectionHandle, uint8_t 
     ATT.setPeerEncryption(connectionHandle, PEER_ENCRYPTION::NO_ENCRYPTION);
   }
   else if (code == CONNECTION_IDENTITY_INFORMATION){
+#ifdef _BLE_TRACE_
+    Serial.println("L2CAPSignalingClass::CONNECTION_IDENTITY_INFORMATION");
+#endif
     struct __attribute__ ((packed)) IdentityInformation {
       uint8_t code;
       uint8_t PeerIRK[16];
@@ -286,6 +303,10 @@ void L2CAPSignalingClass::handleSecurityData(uint16_t connectionHandle, uint8_t 
 #endif
   }
   else if (code == CONNECTION_IDENTITY_ADDRESS){
+#ifdef _BLE_TRACE_
+    Serial.println("L2CAPSignalingClass::CONNECTION_IDENTITY_ADDRESS");
+#endif
+
     struct __attribute__ ((packed)) IdentityAddress {
       uint8_t code;
       uint8_t addressType;
@@ -301,6 +322,9 @@ void L2CAPSignalingClass::handleSecurityData(uint16_t connectionHandle, uint8_t 
     }
   }
   else if (code == CONNECTION_PAIRING_PUBLIC_KEY){
+#ifdef _BLE_TRACE_
+    Serial.println("L2CAPSignalingClass::CONNECTION_PAIRING_PUBLIC_KEY");
+#endif
     /// Received a public key
     struct __attribute__ ((packed)) ConnectionPairingPublicKey {
       uint8_t x[32];
@@ -339,6 +363,9 @@ void L2CAPSignalingClass::handleSecurityData(uint16_t connectionHandle, uint8_t 
   }
   else if(code == CONNECTION_PAIRING_DHKEY_CHECK)
   {
+#ifdef _BLE_TRACE_
+    Serial.println("L2CAPSignalingClass::CONNECTION_PAIRING_DHKEY_CHECK");
+#endif
     uint8_t RemoteDHKeyCheck[16];
     for(int i=0; i<16; i++) RemoteDHKeyCheck[15-i] = l2capSignalingHdr->data[i];
     

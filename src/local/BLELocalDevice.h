@@ -108,7 +108,7 @@ public:
   virtual void setDisplayCode(void (*displayCode)(uint32_t confirmationCode));
   virtual void setBinaryConfirmPairing(bool (*binaryConfirmPairing)());
   uint8_t BDaddress[6];
-  
+
 protected:
   virtual BLEAdvertisingData& getAdvertisingData();
   virtual BLEAdvertisingData& getScanResponseData();

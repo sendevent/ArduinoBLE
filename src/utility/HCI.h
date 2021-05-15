@@ -143,6 +143,15 @@ private:
   virtual void handleNumCompPkts(uint16_t handle, uint16_t numPkts);
   virtual void handleEventPkt(uint8_t plen, uint8_t pdata[]);
 
+  void handle_DisconnectComplete(const uint8_t* const pdata);
+  void handle_EncriptionChange(const uint8_t* const pdata);
+  void handle_CmdComplete(uint8_t* pdata);
+  void handle_CmdStatus(const uint8_t* const pdata);
+  void handle_NumCompletePackets(const uint8_t* const pdata);
+  void handle_ReturnLinkKeys(const uint8_t* const pdata);
+  void handle_UnknownEvent(const uint8_t* const pdata);
+  void handle_MetaEvent(const uint8_t* const pdata);
+
   virtual void dumpPkt(const char* prefix, uint8_t plen, uint8_t pdata[]);
 
   Stream* _debug;

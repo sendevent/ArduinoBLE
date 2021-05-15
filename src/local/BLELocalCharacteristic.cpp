@@ -41,15 +41,23 @@ BLELocalCharacteristic::BLELocalCharacteristic(const char* uuid, uint16_t permis
   _cccdValue(0x0000),
   _permissions((uint8_t)((permissions&0xFF00)>>8))
 {
-  memset(_eventHandlers, 0x00, sizeof(_eventHandlers));
+    memset(_eventHandlers, 0x00, sizeof(_eventHandlers));
 
-  if (permissions & (BLENotify | BLEIndicate)) {
+    if (permissions & (BLENotify | BLEIndicate)) {
+        // Set the bits for the Client Characteristic Config descriptor so Notify and Indicate are visible
+        if (permissions & BLENotify) {
+        _cccdValue = _cccdValue ^ 0x0001;
+    }
+    if (permissions & BLEIndicate) {
+        _cccdValue = _cccdValue ^ 0x0002;
+    }
+
     BLELocalDescriptor* cccd = new BLELocalDescriptor("2902", (uint8_t*)&_cccdValue, sizeof(_cccdValue));
-  
-    _descriptors.add(cccd);
-  }
 
-  _value = (uint8_t*)malloc(valueSize);
+    _descriptors.add(cccd);
+    }
+
+    _value = (uint8_t*)malloc(valueSize);
 }
 
 BLELocalCharacteristic::BLELocalCharacteristic(const char* uuid, uint16_t permissions, const char* value) :
